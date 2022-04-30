@@ -1,15 +1,20 @@
+import csv
+import logging
 import urllib.request
 import time
 import bs4
 import concurrent.futures
+
+import numpy
 import requests
 import threading
 import _thread
 import multiprocessing
-import psutil
 import os
+import Monitor as mon
+import signal
 
-with open(os.path.join(os.getcwd(),"task_3", "wikipedia", "wikipedia_urls" + ".txt"), 'r') as f:
+with open(os.path.join(os.getcwd(), "task_3", "wikipedia", "wikipedia_urls" + ".txt"), 'r') as f:
     file_content = f.read()
     articles_urls = file_content.split('\n')
 
@@ -25,11 +30,11 @@ def article_scraper(url):
 
 
 def pos_neg_words():
-    with open(os.path.join(os.getcwd(),"task_3" ,"words", "positive_words" + ".txt"), 'r') as fp:
+    with open(os.path.join(os.getcwd(), "task_3", "words", "positive_words" + ".txt"), 'r') as fp:
         file_pos_content = fp.read()
         lpositive_words = file_pos_content.split('\n')
 
-    with open(os.path.join(os.getcwd(),"task_3" , "words", "negative_words" + ".txt"), 'r') as fn:
+    with open(os.path.join(os.getcwd(), "task_3", "words", "negative_words" + ".txt"), 'r') as fn:
         file_neg_content = fn.read()
         lnegative_words = file_neg_content.split('\n')
 
@@ -44,23 +49,91 @@ def article_sentiment_analysis(num_article):
     num_neg_words = len(sneg_words.intersection(sarticle_words))
     # print(num_pos_words,num_neg_words, end=" ")
     if num_pos_words == num_neg_words or num_pos_words + 1 == num_neg_words or num_pos_words == num_neg_words + 1: return \
-    articles_urls[num_article].split("/")[-1], "neutral"
+        articles_urls[num_article].split("/")[-1], "neutral"
     return (articles_urls[num_article].split("/")[-1], "positive") if num_pos_words > num_neg_words else (
-    articles_urls[num_article].split("/")[-1], "negative")
+        articles_urls[num_article].split("/")[-1], "negative")
 
 
-def monitor_CPU_Ram():
-    mem = psutil.virtual_memory()
-    print("{}: Memory: {} CPU: {}".format(time.ctime(time.time()), mem.percent,
-                                          psutil.cpu_percent(interval=0.0, percpu=True)))
+def run_analysis(start, stop):
+    for i in range(start, stop):
+        article_sentiment_analysis(i)
+
+
+def run_multiprocessing_experiment():
+    # Number of processes
+    N = 10
+    # Building the tuples of how the article should be devided
+    data = []
+    for x in range(N):
+        start = int(x * numpy.floor((len(articles_urls) / N)))
+        end = int(start + numpy.floor((len(articles_urls) / N)))
+        if x != N - 1:
+            data.append((start, end)) if end <= len(articles_urls) else data.append((start, len(articles_urls)))
+        else:
+            data.append((start, len(articles_urls)))
+    print(data)
+    start_time = time.time()
+    with multiprocessing.Pool(N) as p:
+        # from documentation we know that starmap_async maintains order of the result.
+        # So its safe to asume that we would not have ANY race condition at the end.
+        p.starmap(
+            run_analysis,
+            data
+        )
+    return time.time() - start_time
 
 
 if __name__ == '__main__':
+    a = mon.Monitor([], [])
+    stop_threads = False
 
-    mem = psutil.virtual_memory()
-    print("Nuber of CPUs: ", psutil.cpu_count(), " Total physical memory", str(int(mem.total / 1024 ** 2)), "MB")
+    t1 = threading.Thread(target=a.monitor_cpu, args=(lambda: stop_threads,))
+    t2 = threading.Thread(target=a.monitor_ram, args=(lambda: stop_threads,))
+
+    # starting monitoring threads
+    t1.start()
+    t2.start()
+
+    # Multiprocessing experiment
+    # total_time = run_multiprocessing_experiment()
+
+    # Performing the article analysis
+    total_time = 0
+    N = 6
+    # Building the tuples of how the article should be devided
+    data = []
+    for x in range(N):
+        start = int(x * numpy.floor((len(articles_urls) / N)))
+        end = int(start + numpy.floor((len(articles_urls) / N)))
+        if x != N - 1:
+            data.append((start, end)) if end <= len(articles_urls) else data.append((start, len(articles_urls)))
+        else:
+            data.append((start, len(articles_urls)))
+    print(data)
+    threads = list()
     start_time = time.time()
-    for i in range(100):
-        print("%s : %s" % article_sentiment_analysis(i))
-        # monitor_CPU_Ram()
-    print("Execution time: ", str((time.time() - start_time)))
+    for start, end in data:
+        t = threading.Thread(target=run_analysis, args=(start, end))
+        threads.append(t)
+        t.start()
+
+    for index, thread in enumerate(threads):
+        thread.join()
+    total_time = time.time() - start_time
+
+    # Stoping our monitoring threads
+    stop_threads = True
+    t1.join()
+    t2.join()
+
+    # writing raw data to coresponding csv files
+    run_name = 'Mutlithreading_run_2_12_threads'
+    with open(os.path.join(os.getcwd(), "task_3", "out", "Total_time" + ".csv"), 'a', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow([run_name, str(total_time)])
+
+    a.save_cpu_ram(os.path.join(os.getcwd(), "task_3", "out", run_name + ".csv"), ["CPU", "RAM"])
+
+    # Creating the vizulization for the data
+    b = mon.VizualizeMonitoring(a.cpu_util, a.ram_util)
+    b()
