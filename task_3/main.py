@@ -59,9 +59,9 @@ def run_analysis(start, stop):
         article_sentiment_analysis(i)
 
 
-def run_multiprocessing_experiment():
+def run_multiprocessing_experiment(process_num=6):
     # Number of processes
-    N = 10
+    N = process_num
     # Building the tuples of how the article should be devided
     data = []
     for x in range(N):
@@ -83,23 +83,8 @@ def run_multiprocessing_experiment():
     return time.time() - start_time
 
 
-if __name__ == '__main__':
-    a = mon.Monitor([], [])
-    stop_threads = False
-
-    t1 = threading.Thread(target=a.monitor_cpu, args=(lambda: stop_threads,))
-    t2 = threading.Thread(target=a.monitor_ram, args=(lambda: stop_threads,))
-
-    # starting monitoring threads
-    t1.start()
-    t2.start()
-
-    # Multiprocessing experiment
-    # total_time = run_multiprocessing_experiment()
-
-    # Performing the article analysis
-    total_time = 0
-    N = 6
+def run_multithreading_experiment(thread_num=4):
+    N = thread_num
     # Building the tuples of how the article should be devided
     data = []
     for x in range(N):
@@ -119,7 +104,25 @@ if __name__ == '__main__':
 
     for index, thread in enumerate(threads):
         thread.join()
-    total_time = time.time() - start_time
+    return time.time() - start_time
+
+
+if __name__ == '__main__':
+    a = mon.Monitor([], [])
+    stop_threads = False
+
+    t1 = threading.Thread(target=a.monitor_cpu, args=(lambda: stop_threads,))
+    t2 = threading.Thread(target=a.monitor_ram, args=(lambda: stop_threads,))
+
+    # starting monitoring threads
+    t1.start()
+    t2.start()
+
+    # Multiprocessing experiment
+    # total_time = run_multiprocessing_experiment()
+
+    # Multithreading experiment
+    total_time = run_multithreading_experiment(10)
 
     # Stoping our monitoring threads
     stop_threads = True
